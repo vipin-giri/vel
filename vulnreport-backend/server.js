@@ -14,10 +14,6 @@ const secureRoutes = require('./routes/secure');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
-
 // Security middleware
 app.use(helmet());
 app.use(cors({
