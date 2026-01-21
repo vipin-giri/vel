@@ -1,7 +1,13 @@
 import { ApiResponse, LoginCredentials, SignupCredentials, ProfileData, User, VulnerabilityReport, ReportFormData, Analytics } from '@/types'
 import URLEncryption from './urlEncryption'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002/api'
+// Use the live backend URL - fallback only for development
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://vel-0ozj.onrender.com/api'
+
+// Log the API URL being used (for debugging)
+if (typeof window !== 'undefined') {
+  console.log('API Base URL:', API_BASE_URL)
+}
 
 class ApiClient {
   private token: string | null = null
@@ -57,7 +63,7 @@ class ApiClient {
       if (!response.ok) {
         return {
           success: false,
-          error: data.message || 'Request failed',
+          error: data.error || data.message || 'Request failed',
         }
       }
 
@@ -66,6 +72,7 @@ class ApiClient {
         data: data.data || data,
       }
     } catch (error) {
+      console.error('API Error:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Network error',
