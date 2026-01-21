@@ -1,26 +1,26 @@
 -- VulnReport Pro Database Schema
 -- Create database
 CREATE DATABASE IF NOT EXISTS vulnreport_db;
-USE vulnreport_db;
+\c vulnreport_db;
 
 -- Users table
 CREATE TABLE users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     nickname VARCHAR(100),
     full_name VARCHAR(255),
     about TEXT,
     experience TEXT,
-    role ENUM('user', 'admin') DEFAULT 'user',
+    role VARCHAR(50) DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Vulnerability reports table
 CREATE TABLE vulnerability_reports (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
     domain VARCHAR(255) NOT NULL,
     affected_url TEXT NOT NULL,
     vulnerability_type VARCHAR(255) NOT NULL,
@@ -28,19 +28,19 @@ CREATE TABLE vulnerability_reports (
     impact TEXT NOT NULL,
     proof_of_concept TEXT,
     admin_comment TEXT,
-    status ENUM('pending', 'on_hold', 'accepted', 'rejected', 'patched') DEFAULT 'pending',
+    status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'on_hold', 'accepted', 'rejected', 'patched')),
     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Report attachments table
 CREATE TABLE report_attachments (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    report_id INT NOT NULL,
+    id SERIAL PRIMARY KEY,
+    report_id INTEGER NOT NULL,
     filename VARCHAR(255) NOT NULL,
     original_name VARCHAR(255) NOT NULL,
-    file_size INT NOT NULL,
+    file_size INTEGER NOT NULL,
     mime_type VARCHAR(100) NOT NULL,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (report_id) REFERENCES vulnerability_reports(id) ON DELETE CASCADE

@@ -38,12 +38,12 @@ router.post('/signup', registerValidation, async (req, res) => {
         const { email, password } = req.body;
 
         // Check if user already exists
-        const [existingUsers] = await pool.execute(
-            'SELECT id FROM users WHERE email = ?',
+        const existingUsers = await pool.query(
+            'SELECT id FROM users WHERE email = $1',
             [email]
         );
 
-        if (existingUsers.length > 0) {
+        if (existingUsers.rows.length > 0) {
             return res.status(400).json({
                 success: false,
                 error: 'User already exists with this email'
@@ -54,28 +54,31 @@ router.post('/signup', registerValidation, async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         // Create new user
-        const [result] = await pool.execute(
-            'INSERT INTO users (email, password) VALUES (?, ?)',
+        const result = await pool.query(
+            'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id',
             [email, hashedPassword]
         );
 
         // Generate JWT token
         const token = jwt.sign(
-            { userId: result.insertId, email, role: 'user' },
+            { userId: result.rows[0].id.toString(), email, role: 'user' },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
         );
 
         // Get created user
-        const [users] = await pool.execute(
-            'SELECT id, email, nickname, full_name, role, created_at FROM users WHERE id = ?',
-            [result.insertId]
+        const users = await pool.query(
+            'SELECT id, email, nickname, full_name, role, created_at FROM users WHERE id = $1',
+            [result.rows[0].id]
         );
 
         res.status(201).json({
             success: true,
             data: {
-                user: users[0],
+                user: {
+                    ...users.rows[0],
+                    id: users.rows[0].id.toString()
+                },
                 token
             }
         });
@@ -102,19 +105,19 @@ router.post('/login', loginValidation, async (req, res) => {
         const { email, password } = req.body;
 
         // Find user
-        const [users] = await pool.execute(
-            'SELECT id, email, password, nickname, full_name, role FROM users WHERE email = ?',
+        const users = await pool.query(
+            'SELECT id, email, password, nickname, full_name, role FROM users WHERE email = $1',
             [email]
         );
 
-        if (users.length === 0) {
+        if (users.rows.length === 0) {
             return res.status(401).json({
                 success: false,
                 error: 'Invalid email or password'
             });
         }
 
-        const user = users[0];
+        const user = users.rows[0];
 
         // Check password
         const isValidPassword = await bcrypt.compare(password, user.password);
@@ -127,7 +130,7 @@ router.post('/login', loginValidation, async (req, res) => {
 
         // Generate JWT token
         const token = jwt.sign(
-            { userId: user.id, email: user.email, role: user.role },
+            { userId: user.id.toString(), email: user.email, role: user.role },
             process.env.JWT_SECRET,
             { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
         );
@@ -138,7 +141,10 @@ router.post('/login', loginValidation, async (req, res) => {
         res.json({
             success: true,
             data: {
-                user,
+                user: {
+                    ...user,
+                    id: user.id.toString()
+                },
                 token
             }
         });
@@ -164,12 +170,12 @@ router.get('/me', async (req, res) => {
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        const [users] = await pool.execute(
-            'SELECT id, email, nickname, full_name, about, experience, role, created_at, updated_at FROM users WHERE id = ?',
-            [decoded.userId]
+        const users = await pool.query(
+            'SELECT id, email, nickname, full_name, about, experience, role, created_at, updated_at FROM users WHERE id = $1',
+            [parseInt(decoded.userId)]
         );
 
-        if (users.length === 0) {
+        if (users.rows.length === 0) {
             return res.status(401).json({
                 success: false,
                 error: 'User not found'
@@ -178,7 +184,10 @@ router.get('/me', async (req, res) => {
 
         res.json({
             success: true,
-            data: users[0]
+            data: {
+                ...users.rows[0],
+                id: users.rows[0].id.toString()
+            }
         });
     } catch (error) {
         console.error('Get user error:', error);
@@ -210,19 +219,22 @@ router.post('/profile', async (req, res) => {
             });
         }
 
-        await pool.execute(
-            'UPDATE users SET nickname = ?, full_name = ?, about = ?, experience = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [nickname, fullName, about, experience, decoded.userId]
+        await pool.query(
+            'UPDATE users SET nickname = $1, full_name = $2, about = $3, experience = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5',
+            [nickname, fullName, about, experience, parseInt(decoded.userId)]
         );
 
-        const [users] = await pool.execute(
-            'SELECT id, email, nickname, full_name, about, experience, role, created_at, updated_at FROM users WHERE id = ?',
-            [decoded.userId]
+        const users = await pool.query(
+            'SELECT id, email, nickname, full_name, about, experience, role, created_at, updated_at FROM users WHERE id = $1',
+            [parseInt(decoded.userId)]
         );
 
         res.json({
             success: true,
-            data: users[0]
+            data: {
+                ...users.rows[0],
+                id: users.rows[0].id.toString()
+            }
         });
     } catch (error) {
         console.error('Profile completion error:', error);

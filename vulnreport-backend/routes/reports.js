@@ -79,13 +79,13 @@ router.post(
       console.log('User ID:', userId);
 
       // Duplicate check (24h)
-      const [existing] = await pool.execute(
-        'SELECT submitted_at FROM vulnerability_reports WHERE domain = ? AND affected_url = ?',
+      const existing = await pool.query(
+        'SELECT submitted_at FROM vulnerability_reports WHERE domain = $1 AND affected_url = $2',
         [domain, affected_url]
       );
 
-      if (existing.length) {
-        const hoursDiff = (Date.now() - new Date(existing[0].submitted_at)) / 36e5;
+      if (existing.rows.length) {
+        const hoursDiff = (Date.now() - new Date(existing.rows[0].submitted_at)) / 36e5;
         if (hoursDiff < 24) {
           return res.status(400).json({
             success: false,
@@ -96,10 +96,10 @@ router.post(
       }
 
       // INSERT REPORT - FIXED: Remove attachments column (handled separately)
-      const [result] = await pool.execute(
-        `INSERT INTO vulnerability_reports 
-         (user_id, domain, affected_url, vulnerability_type, steps_to_reproduce, impact, proof_of_concept) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      const result = await pool.query(
+        `INSERT INTO vulnerability_reports
+         (user_id, domain, affected_url, vulnerability_type, steps_to_reproduce, impact, proof_of_concept)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
         [
           userId,
           domain || null,
@@ -114,12 +114,12 @@ router.post(
       // INSERT ATTACHMENTS
       if (req.files && req.files.length > 0) {
         for (const file of req.files) {
-          await pool.execute(
-            `INSERT INTO report_attachments 
-             (report_id, filename, original_name, file_size, mime_type) 
-             VALUES (?, ?, ?, ?, ?)`,
+          await pool.query(
+            `INSERT INTO report_attachments
+             (report_id, filename, original_name, file_size, mime_type)
+             VALUES ($1, $2, $3, $4, $5)`,
             [
-              result.insertId,
+              result.rows[0].id,
               file.filename,
               file.originalname,
               file.size,
@@ -129,7 +129,7 @@ router.post(
         }
       }
 
-      res.status(201).json({ success: true, reportId: result.insertId });
+      res.status(201).json({ success: true, reportId: result.rows[0].id.toString() });
     } catch (err) {
       console.error('CREATE REPORT ERROR:', err);
       res.status(500).json({
@@ -143,18 +143,22 @@ router.post(
 /* ========================= USER REPORTS ========================= */
 router.get('/user', authenticateToken, async (req, res) => {
   try {
-    const [reports] = await pool.execute(
-      `SELECT vr.*, u.email, u.nickname, u.full_name 
-       FROM vulnerability_reports vr 
-       JOIN users u ON vr.user_id = u.id 
-       WHERE vr.user_id = ? 
+    const reports = await pool.query(
+      `SELECT vr.*, u.email, u.nickname, u.full_name
+       FROM vulnerability_reports vr
+       JOIN users u ON vr.user_id = u.id
+       WHERE vr.user_id = $1
        ORDER BY vr.submitted_at DESC`,
       [req.user.id]
     );
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
-    res.json({ success: true, data: reports });
+    res.json({ success: true, data: reports.rows.map(report => ({
+      ...report,
+      id: report.id.toString(),
+      user_id: report.user_id.toString()
+    })) });
   } catch (err) {
     console.error('GET USER REPORTS ERROR:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -164,17 +168,19 @@ router.get('/user', authenticateToken, async (req, res) => {
 /* ========================= ALL REPORTS (ADMIN) ========================= */
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const [reports] = await pool.execute(
-      `SELECT vr.id, vr.user_id, vr.domain, vr.affected_url, vr.vulnerability_type, vr.steps_to_reproduce, vr.impact, vr.proof_of_concept, vr.status, vr.admin_comment, vr.submitted_at, vr.updated_at, u.email, u.nickname, u.full_name 
-       FROM vulnerability_reports vr 
-       JOIN users u ON vr.user_id = u.id 
+    const reports = await pool.query(
+      `SELECT vr.id, vr.user_id, vr.domain, vr.affected_url, vr.vulnerability_type, vr.steps_to_reproduce, vr.impact, vr.proof_of_concept, vr.status, vr.admin_comment, vr.submitted_at, vr.updated_at, u.email, u.nickname, u.full_name
+       FROM vulnerability_reports vr
+       JOIN users u ON vr.user_id = u.id
        ORDER BY vr.submitted_at DESC`
     );
-    const formattedReports = reports.map(report => ({
+    const formattedReports = reports.rows.map(report => ({
       ...report,
+      id: report.id.toString(),
+      user_id: report.user_id.toString(),
       submittedAt: report.submitted_at,
       updatedAt: report.updated_at,
-      userId: report.user_id,
+      userId: report.user_id.toString(),
       fullName: report.full_name,
       adminComment: report.admin_comment,
       proofOfConcept: report.proof_of_concept,
@@ -195,22 +201,22 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
 /* ========================= SINGLE REPORT ========================= */
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const [reports] = await pool.execute(
-      `SELECT vr.id, vr.user_id, vr.domain, vr.affected_url, vr.vulnerability_type, vr.steps_to_reproduce, vr.impact, vr.proof_of_concept, vr.status, vr.admin_comment, vr.submitted_at, vr.updated_at, u.email, u.nickname, u.full_name 
-       FROM vulnerability_reports vr 
-       JOIN users u ON vr.user_id = u.id 
-       WHERE vr.id = ?`,
+    const reports = await pool.query(
+      `SELECT vr.id, vr.user_id, vr.domain, vr.affected_url, vr.vulnerability_type, vr.steps_to_reproduce, vr.impact, vr.proof_of_concept, vr.status, vr.admin_comment, vr.submitted_at, vr.updated_at, u.email, u.nickname, u.full_name
+       FROM vulnerability_reports vr
+       JOIN users u ON vr.user_id = u.id
+       WHERE vr.id = $1`,
       [req.params.id]
     );
 
-    if (!reports.length) {
+    if (!reports.rows.length) {
       return res.status(404).json({
         success: false,
         error: 'Report not found'
       });
     }
 
-    const report = reports[0];
+    const report = reports.rows[0];
 
     // Authorization check: only owner or admin can view
     if (report.user_id !== req.user.id && req.user.role !== 'admin') {
@@ -221,26 +227,33 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 
     // Get attachments
-    const [attachments] = await pool.execute(
-      `SELECT id, filename, original_name, file_size, mime_type, uploaded_at 
-       FROM report_attachments 
-       WHERE report_id = ?`,
+    const attachments = await pool.query(
+      `SELECT id, filename, original_name, file_size, mime_type, uploaded_at
+       FROM report_attachments
+       WHERE report_id = $1`,
       [req.params.id]
     );
 
-    report.attachments = attachments;
+    report.attachments = attachments.rows;
     
     const formattedReport = {
       ...report,
+      id: report.id.toString(),
+      user_id: report.user_id.toString(),
       submittedAt: report.submitted_at,
       updatedAt: report.updated_at,
-      userId: report.user_id,
+      userId: report.user_id.toString(),
       fullName: report.full_name,
       adminComment: report.admin_comment,
       proofOfConcept: report.proof_of_concept,
       vulnerabilityType: report.vulnerability_type,
       stepsToReproduce: report.steps_to_reproduce,
-      affectedUrl: report.affected_url
+      affectedUrl: report.affected_url,
+      attachments: attachments.rows.map(att => ({
+        ...att,
+        id: att.id.toString(),
+        report_id: att.report_id.toString()
+      }))
     };
 
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -273,14 +286,14 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req, res) => {
       });
     }
 
-    const [result] = await pool.execute(
-      `UPDATE vulnerability_reports 
-       SET status = ?, admin_comment = ?, updated_at = NOW() 
-       WHERE id = ?`,
+    const result = await pool.query(
+      `UPDATE vulnerability_reports
+       SET status = $1, admin_comment = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3`,
       [status, adminComment || null, req.params.id]
     );
 
-    if (result.affectedRows === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         error: 'Report not found'
@@ -288,25 +301,25 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req, res) => {
     }
 
     // Return updated report with user info
-    const [updatedReport] = await pool.execute(
-      `SELECT vr.id, vr.user_id, vr.domain, vr.affected_url as affectedUrl, vr.vulnerability_type as vulnerabilityType, vr.steps_to_reproduce as stepsToReproduce, vr.impact, vr.proof_of_concept as proofOfConcept, vr.status, vr.admin_comment as adminComment, vr.submitted_at, vr.updated_at, u.email, u.nickname, u.full_name as fullName 
-       FROM vulnerability_reports vr 
-       JOIN users u ON vr.user_id = u.id 
-       WHERE vr.id = ?`,
+    const updatedReport = await pool.query(
+      `SELECT vr.id, vr.user_id, vr.domain, vr.affected_url as affectedUrl, vr.vulnerability_type as vulnerabilityType, vr.steps_to_reproduce as stepsToReproduce, vr.impact, vr.proof_of_concept as proofOfConcept, vr.status, vr.admin_comment as adminComment, vr.submitted_at, vr.updated_at, u.email, u.nickname, u.full_name as fullName
+       FROM vulnerability_reports vr
+       JOIN users u ON vr.user_id = u.id
+       WHERE vr.id = $1`,
       [req.params.id]
     );
 
     const formattedReport = {
-      ...updatedReport[0],
-      submittedAt: updatedReport[0].submitted_at,
-      updatedAt: updatedReport[0].updated_at,
-      userId: updatedReport[0].user_id,
-      fullName: updatedReport[0].full_name,
-      adminComment: updatedReport[0].admin_comment,
-      proofOfConcept: updatedReport[0].proof_of_concept,
-      vulnerabilityType: updatedReport[0].vulnerability_type,
-      stepsToReproduce: updatedReport[0].steps_to_reproduce,
-      affectedUrl: updatedReport[0].affected_url
+      ...updatedReport.rows[0],
+      submittedAt: updatedReport.rows[0].submitted_at,
+      updatedAt: updatedReport.rows[0].updated_at,
+      userId: updatedReport.rows[0].user_id,
+      fullName: updatedReport.rows[0].full_name,
+      adminComment: updatedReport.rows[0].admin_comment,
+      proofOfConcept: updatedReport.rows[0].proof_of_concept,
+      vulnerabilityType: updatedReport.rows[0].vulnerability_type,
+      stepsToReproduce: updatedReport.rows[0].steps_to_reproduce,
+      affectedUrl: updatedReport.rows[0].affected_url
     };
 
     res.json({
@@ -327,12 +340,12 @@ router.patch('/:id', authenticateToken, requireAdmin, async (req, res) => {
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     // Get report to check ownership
-    const [reports] = await pool.execute(
-      'SELECT user_id FROM vulnerability_reports WHERE id = ?',
+    const reports = await pool.query(
+      'SELECT user_id FROM vulnerability_reports WHERE id = $1',
       [req.params.id]
     );
 
-    if (!reports.length) {
+    if (!reports.rows.length) {
       return res.status(404).json({
         success: false,
         error: 'Report not found'
@@ -340,7 +353,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
 
     // Authorization: only owner or admin can delete
-    if (reports[0].user_id !== req.user.id && req.user.role !== 'admin') {
+    if (reports.rows[0].user_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         error: 'Access denied'
@@ -348,13 +361,13 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
 
     // Get attachments to delete files
-    const [attachments] = await pool.execute(
-      'SELECT filename FROM report_attachments WHERE report_id = ?',
+    const attachments = await pool.query(
+      'SELECT filename FROM report_attachments WHERE report_id = $1',
       [req.params.id]
     );
 
     // Delete attachment files
-    for (const att of attachments) {
+    for (const att of attachments.rows) {
       const filePath = path.join('uploads', att.filename);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
@@ -362,8 +375,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
 
     // Delete from database (CASCADE should handle attachments if FK is set)
-    await pool.execute(
-      'DELETE FROM vulnerability_reports WHERE id = ?',
+    await pool.query(
+      'DELETE FROM vulnerability_reports WHERE id = $1',
       [req.params.id]
     );
 
