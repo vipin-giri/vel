@@ -22,7 +22,7 @@ app.listen(PORT, '0.0.0.0', () => {
 app.use(helmet());
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' 
-        ? ['https://yourdomain.com'] 
+        ? ['https://fulfilling-wholeness-production-b58b.up.railway.app'] 
         : ['http://localhost:3000', 'http://127.0.0.1:3000', /^http:\/\/192\.168\.\d+\.\d+:3000/, /^http:\/\/10\.\d+\.\d+\.\d+:3000/],
     credentials: true
 }));

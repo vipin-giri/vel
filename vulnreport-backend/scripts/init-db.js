@@ -1,20 +1,20 @@
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
 require('dotenv').config();
 
 async function initializeDatabase() {
     const connection = await mysql.createConnection({
-        host: process.env.DB_HOST || 'localhost',
-        user: process.env.DB_USER || 'root',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_NAME || 'vulnreport_db',
-        port: process.env.DB_PORT || 3306
+        host: 'mysql.railway.internal',
+        user: 'root',
+        password: 'QbrvQFCpSEndFYpyzHiMGJKyasICsKaU',
+        database: 'railway',
+        port: 3306
     });
 
     try {
         console.log('Connecting to database...');
-        await connection.execute('CREATE DATABASE IF NOT EXISTS vulnreport_db');
-        await connection.execute('USE vulnreport_db');
+        await connection.execute('USE railway');
 
         // Create users table
         await connection.execute(`
@@ -68,19 +68,20 @@ async function initializeDatabase() {
         // Check if admin user exists
         const [adminUsers] = await connection.execute(
             'SELECT id FROM users WHERE email = ? AND role = ?',
-            ['vipingiribgb0@gmail.com', 'admin']
+            ['vipin-giribgb0@gmail.com', 'admin']
         );
 
+        let userCreated = false;
         if (adminUsers.length === 0) {
             // Hash the admin password
-            const hashedPassword = await bcrypt.hash('Xyz99@123', 10);
+            const hashedPassword = await bcrypt.hash('word Xyz99@123', 10);
             
             // Insert default admin user
             await connection.execute(`
                 INSERT INTO users (email, password, nickname, full_name, role, about, experience) 
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             `, [
-                'vipingiribgb0@gmail.com',
+                'vipin-giribgb0@gmail.com',
                 hashedPassword,
                 'admin',
                 'VulnReport Admin',
@@ -90,8 +91,9 @@ async function initializeDatabase() {
             ]);
             
             console.log('✅ Default admin user created successfully!');
-            console.log('📧 Email: vipingiribgb0@gmail.com');
-            console.log('🔑 Password: Xyz99@123');
+            console.log('📧 Email: vipin-giribgb0@gmail.com');
+            console.log('🔑 Password: word Xyz99@123');
+            userCreated = true;
         } else {
             console.log('✅ Admin user already exists');
         }
@@ -103,6 +105,12 @@ async function initializeDatabase() {
         await connection.execute('CREATE INDEX IF NOT EXISTS idx_reports_submitted_at ON vulnerability_reports(submitted_at)');
 
         console.log('🎉 Database initialized successfully!');
+
+        // If user was created, destroy this script to prevent further use
+        if (userCreated) {
+            fs.unlinkSync(__filename);
+            console.log('🔒 Initialization script destroyed for security.');
+        }
         
     } catch (error) {
         console.error('❌ Error initializing database:', error);
