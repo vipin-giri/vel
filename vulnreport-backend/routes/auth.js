@@ -59,6 +59,13 @@ router.post('/signup', registerValidation, async (req, res) => {
             [email, hashedPassword]
         );
 
+        if (!result.rows || result.rows.length === 0) {
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to create user'
+            });
+        }
+
         // Generate JWT token
         const token = jwt.sign(
             { userId: result.rows[0].id.toString(), email, role: 'user' },
@@ -84,6 +91,22 @@ router.post('/signup', registerValidation, async (req, res) => {
         });
     } catch (error) {
         console.error('Signup error:', error);
+        
+        // Handle specific database errors
+        if (error.code === '23505') {
+            return res.status(400).json({
+                success: false,
+                error: 'User already exists with this email'
+            });
+        }
+        
+        if (error.code === '08006' || error.code === 'ECONNREFUSED') {
+            return res.status(503).json({
+                success: false,
+                error: 'Database connection error. Please try again later.'
+            });
+        }
+
         res.status(500).json({
             success: false,
             error: 'Internal server error'
@@ -150,6 +173,15 @@ router.post('/login', loginValidation, async (req, res) => {
         });
     } catch (error) {
         console.error('Login error:', error);
+        
+        // Handle specific database errors
+        if (error.code === '08006' || error.code === 'ECONNREFUSED') {
+            return res.status(503).json({
+                success: false,
+                error: 'Database connection error. Please try again later.'
+            });
+        }
+        
         res.status(500).json({
             success: false,
             error: 'Internal server error'
@@ -198,8 +230,8 @@ router.get('/me', async (req, res) => {
     }
 });
 
-// Complete profile
-router.post('/profile', async (req, res) => {
+// Complete profile (POST) or Update profile (PUT)
+const handleProfileUpdate = async (req, res) => {
     try {
         const token = req.headers.authorization?.split(' ')[1];
         if (!token) {
@@ -212,7 +244,8 @@ router.post('/profile', async (req, res) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const { nickname, fullName, about, experience, acceptTerms } = req.body;
 
-        if (!acceptTerms) {
+        // For POST (profile completion), require terms acceptance
+        if (req.method === 'POST' && !acceptTerms) {
             return res.status(400).json({
                 success: false,
                 error: 'Terms and conditions must be accepted'
@@ -237,12 +270,21 @@ router.post('/profile', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Profile completion error:', error);
+        console.error('Profile update error:', error);
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token'
+            });
+        }
         res.status(500).json({
             success: false,
             error: 'Internal server error'
         });
     }
-});
+};
+
+router.post('/profile', handleProfileUpdate);
+router.put('/profile', handleProfileUpdate);
 
 module.exports = router;

@@ -24,7 +24,7 @@ const authenticateToken = async (req, res, next) => {
         if (users.rows.length === 0) {
             return res.status(401).json({ 
                 success: false, 
-                error: 'Invalid token' 
+                error: 'User not found' 
             });
         }
 
@@ -34,9 +34,15 @@ const authenticateToken = async (req, res, next) => {
         };
         next();
     } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ 
+                success: false, 
+                error: 'Token expired' 
+            });
+        }
         return res.status(403).json({ 
             success: false, 
-            error: 'Invalid or expired token' 
+            error: 'Invalid token' 
         });
     }
 };
